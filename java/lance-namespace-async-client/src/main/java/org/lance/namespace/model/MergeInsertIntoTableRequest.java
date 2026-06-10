@@ -206,7 +206,10 @@ public class MergeInsertIntoTableRequest {
   }
 
   /**
-   * Column name to use for matching rows (required)
+   * Lance field path to use for matching rows. Nested fields use dot-separated segments; use
+   * backtick-quoted segments for literal dots and double backticks inside quoted segments. Use
+   * canonical full paths for display and errors; leaf names alone only identify top-level fields;
+   * invalid or unresolved paths should return InvalidInput or TableColumnNotFound.
    *
    * @return on
    */
@@ -255,7 +258,9 @@ public class MergeInsertIntoTableRequest {
 
   /**
    * The row is updated (similar to UpdateAll) only for rows where the SQL expression evaluates to
-   * true
+   * true. Field references must use Lance field path syntax: nested fields use dot-separated
+   * segments, literal dots require backtick-quoted segments, and backticks inside quoted segments
+   * are doubled.
    *
    * @return whenMatchedUpdateAllFilt
    */
@@ -330,7 +335,10 @@ public class MergeInsertIntoTableRequest {
   }
 
   /**
-   * Delete rows from the target table if there is no match AND the SQL expression evaluates to true
+   * Delete rows from the target table if there is no match AND the SQL expression evaluates to
+   * true. Field references must use Lance field path syntax: nested fields use dot-separated
+   * segments, literal dots require backtick-quoted segments, and backticks inside quoted segments
+   * are doubled.
    *
    * @return whenNotMatchedBySourceDeleteFilt
    */

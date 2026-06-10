@@ -313,13 +313,16 @@ public class AnalyzeTableQueryPlanRequest {
   }
 
   /**
-   * Optional SQL filter expression
+   * Optional SQL filter expression. Field references in the expression must use Lance field path
+   * syntax: nested fields use dot-separated segments, literal dots require backtick-quoted
+   * segments, and backticks inside quoted segments are doubled.
    *
    * @return filter
    */
   @Schema(
       name = "filter",
-      description = "Optional SQL filter expression",
+      description =
+          "Optional SQL filter expression. Field references in the expression must use Lance field path syntax: nested fields use dot-separated segments, literal dots require backtick-quoted segments, and backticks inside quoted segments are doubled. ",
       requiredMode = Schema.RequiredMode.NOT_REQUIRED)
   @JsonProperty("filter")
   public String getFilter() {
@@ -545,13 +548,18 @@ public class AnalyzeTableQueryPlanRequest {
   }
 
   /**
-   * Name of the vector column to search
+   * Lance field path of the vector field to search. Nested fields use dot-separated segments; use
+   * backtick-quoted segments for literal dots and double backticks inside quoted segments. Use
+   * canonical full paths for display and errors; leaf names alone only identify top-level fields;
+   * invalid or unresolved paths should return InvalidInput or TableColumnNotFound.
    *
    * @return vectorColumn
    */
+  @Size(min = 1)
   @Schema(
       name = "vector_column",
-      description = "Name of the vector column to search",
+      description =
+          "Lance field path of the vector field to search. Nested fields use dot-separated segments; use backtick-quoted segments for literal dots and double backticks inside quoted segments. Use canonical full paths for display and errors; leaf names alone only identify top-level fields; invalid or unresolved paths should return InvalidInput or TableColumnNotFound.",
       requiredMode = Schema.RequiredMode.NOT_REQUIRED)
   @JsonProperty("vector_column")
   public String getVectorColumn() {

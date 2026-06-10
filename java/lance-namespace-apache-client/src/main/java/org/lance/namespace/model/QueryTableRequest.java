@@ -366,7 +366,9 @@ public class QueryTableRequest {
   }
 
   /**
-   * Optional SQL filter expression
+   * Optional SQL filter expression. Field references in the expression must use Lance field path
+   * syntax: nested fields use dot-separated segments, literal dots require backtick-quoted
+   * segments, and backticks inside quoted segments are doubled.
    *
    * @return filter
    */
@@ -608,7 +610,10 @@ public class QueryTableRequest {
   }
 
   /**
-   * Name of the vector column to search
+   * Lance field path of the vector field to search. Nested fields use dot-separated segments; use
+   * backtick-quoted segments for literal dots and double backticks inside quoted segments. Use
+   * canonical full paths for display and errors; leaf names alone only identify top-level fields;
+   * invalid or unresolved paths should return InvalidInput or TableColumnNotFound.
    *
    * @return vectorColumn
    */

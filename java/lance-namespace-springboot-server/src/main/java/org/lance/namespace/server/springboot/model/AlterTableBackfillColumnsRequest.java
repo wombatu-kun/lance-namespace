@@ -155,14 +155,19 @@ public class AlterTableBackfillColumnsRequest {
   }
 
   /**
-   * Column name to backfill
+   * Lance field path to backfill. Nested fields use dot-separated segments; use backtick-quoted
+   * segments for literal dots and double backticks inside quoted segments. Use canonical full paths
+   * for display and errors; leaf names alone only identify top-level fields; invalid or unresolved
+   * paths should return InvalidInput or TableColumnNotFound.
    *
    * @return column
    */
   @NotNull
+  @Size(min = 1)
   @Schema(
       name = "column",
-      description = "Column name to backfill",
+      description =
+          "Lance field path to backfill. Nested fields use dot-separated segments; use backtick-quoted segments for literal dots and double backticks inside quoted segments. Use canonical full paths for display and errors; leaf names alone only identify top-level fields; invalid or unresolved paths should return InvalidInput or TableColumnNotFound.",
       requiredMode = Schema.RequiredMode.REQUIRED)
   @JsonProperty("column")
   public String getColumn() {

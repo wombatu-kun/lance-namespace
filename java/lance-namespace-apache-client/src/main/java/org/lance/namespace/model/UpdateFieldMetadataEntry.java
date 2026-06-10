@@ -57,7 +57,10 @@ public class UpdateFieldMetadataEntry {
   }
 
   /**
-   * Field (column) path whose metadata to update
+   * Lance field path whose metadata to update. Nested fields use dot-separated segments; use
+   * backtick-quoted segments for literal dots and double backticks inside quoted segments. Use
+   * canonical full paths for display and errors; leaf names alone only identify top-level fields;
+   * invalid or unresolved paths should return InvalidInput or TableColumnNotFound.
    *
    * @return path
    */

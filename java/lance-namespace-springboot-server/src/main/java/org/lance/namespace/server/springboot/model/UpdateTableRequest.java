@@ -27,13 +27,13 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Each update consists of a column name and an SQL expression that will be evaluated against the
+ * Each update consists of a field path and an SQL expression that will be evaluated against the
  * current row&#39;s value. Optionally, a predicate can be provided to filter which rows to update.
  */
 @Schema(
     name = "UpdateTableRequest",
     description =
-        "Each update consists of a column name and an SQL expression that will be evaluated against the current row's value. Optionally, a predicate can be provided to filter which rows to update. ")
+        "Each update consists of a field path and an SQL expression that will be evaluated against the current row's value. Optionally, a predicate can be provided to filter which rows to update. ")
 @Generated(
     value = "org.openapitools.codegen.languages.SpringCodegen",
     comments = "Generator version: 7.12.0")
@@ -175,13 +175,16 @@ public class UpdateTableRequest {
   }
 
   /**
-   * Optional SQL predicate to filter rows for update
+   * Optional SQL predicate to filter rows for update. Field references must use Lance field path
+   * syntax: nested fields use dot-separated segments, literal dots require backtick-quoted
+   * segments, and backticks inside quoted segments are doubled.
    *
    * @return predicate
    */
   @Schema(
       name = "predicate",
-      description = "Optional SQL predicate to filter rows for update",
+      description =
+          "Optional SQL predicate to filter rows for update. Field references must use Lance field path syntax: nested fields use dot-separated segments, literal dots require backtick-quoted segments, and backticks inside quoted segments are doubled.",
       requiredMode = Schema.RequiredMode.NOT_REQUIRED)
   @JsonProperty("predicate")
   public String getPredicate() {
@@ -206,7 +209,9 @@ public class UpdateTableRequest {
   }
 
   /**
-   * List of column updates as [column_name, expression] pairs
+   * List of field updates as [field_path, expression] pairs. Field paths and expression references
+   * must use Lance field path syntax: nested fields use dot-separated segments, literal dots
+   * require backtick-quoted segments, and backticks inside quoted segments are doubled.
    *
    * @return updates
    */
@@ -214,7 +219,8 @@ public class UpdateTableRequest {
   @Valid
   @Schema(
       name = "updates",
-      description = "List of column updates as [column_name, expression] pairs",
+      description =
+          "List of field updates as [field_path, expression] pairs. Field paths and expression references must use Lance field path syntax: nested fields use dot-separated segments, literal dots require backtick-quoted segments, and backticks inside quoted segments are doubled.",
       requiredMode = Schema.RequiredMode.REQUIRED)
   @JsonProperty("updates")
   public List<List<String>> getUpdates() {

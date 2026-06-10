@@ -16,7 +16,7 @@
 |**distanceType** | **String** | Distance metric to use |  [optional] |
 |**ef** | **Integer** | Search effort parameter for HNSW index |  [optional] |
 |**fastSearch** | **Boolean** | Whether to use fast search |  [optional] |
-|**filter** | **String** | Optional SQL filter expression |  [optional] |
+|**filter** | **String** | Optional SQL filter expression. Field references in the expression must use Lance field path syntax: nested fields use dot-separated segments, literal dots require backtick-quoted segments, and backticks inside quoted segments are doubled.  |  [optional] |
 |**fullTextQuery** | [**QueryTableRequestFullTextQuery**](QueryTableRequestFullTextQuery.md) |  |  [optional] |
 |**k** | **Integer** | Number of results to return |  |
 |**lowerBound** | **Float** | Lower bound for search |  [optional] |
@@ -26,7 +26,7 @@
 |**refineFactor** | **Integer** | Refine factor for search |  [optional] |
 |**upperBound** | **Float** | Upper bound for search |  [optional] |
 |**vector** | [**QueryTableRequestVector**](QueryTableRequestVector.md) |  |  |
-|**vectorColumn** | **String** | Name of the vector column to search |  [optional] |
+|**vectorColumn** | **String** | Lance field path of the vector field to search. Nested fields use dot-separated segments; use backtick-quoted segments for literal dots and double backticks inside quoted segments. Use canonical full paths for display and errors; leaf names alone only identify top-level fields; invalid or unresolved paths should return InvalidInput or TableColumnNotFound. |  [optional] |
 |**version** | **Long** | Table version to query |  [optional] |
 |**withRowId** | **Boolean** | If true, return the row id as a column called &#x60;_rowid&#x60; |  [optional] |
 
