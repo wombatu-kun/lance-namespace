@@ -23,7 +23,9 @@ use lance_io::object_store::{ObjectStore, ObjectStoreParams, ObjectStoreRegistry
 use lance_linalg::distance::MetricType;
 use lance_table::io::commit::ManifestNamingScheme;
 use object_store::path::Path;
-use object_store::{Error as ObjectStoreError, ObjectStore as OSObjectStore, PutMode, PutOptions};
+use object_store::{
+    Error as ObjectStoreError, ObjectStore as OSObjectStore, ObjectStoreExt, PutMode, PutOptions,
+};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -45,11 +47,10 @@ use lance_namespace::models::{
     DescribeTransactionResponse, DropNamespaceRequest, DropNamespaceResponse,
     DropTableIndexRequest, DropTableIndexResponse, DropTableRequest, DropTableResponse,
     ExplainTableQueryPlanRequest, GetTableStatsRequest, GetTableStatsResponse,
-    GetTableTagVersionRequest, GetTableTagVersionResponse, IndexContent,
-    InsertIntoTableRequest, InsertIntoTableResponse, ListNamespacesRequest,
-    ListNamespacesResponse, ListTableIndicesRequest, ListTableIndicesResponse,
-    ListTableTagsRequest, ListTableTagsResponse, ListTableVersionsRequest,
-    ListTableVersionsResponse, ListTablesRequest, ListTablesResponse,
+    GetTableTagVersionRequest, GetTableTagVersionResponse, IndexContent, InsertIntoTableRequest,
+    InsertIntoTableResponse, ListNamespacesRequest, ListNamespacesResponse,
+    ListTableIndicesRequest, ListTableIndicesResponse, ListTableTagsRequest, ListTableTagsResponse,
+    ListTableVersionsRequest, ListTableVersionsResponse, ListTablesRequest, ListTablesResponse,
     MergeInsertIntoTableRequest, MergeInsertIntoTableResponse, NamespaceExistsRequest,
     QueryTableRequest, RegisterTableRequest, RegisterTableResponse, RenameTableRequest,
     RenameTableResponse, RestoreTableRequest, RestoreTableResponse, TableExistsRequest,
@@ -261,7 +262,7 @@ impl BaseLanceNamespace {
         let mut path = self.base_path.clone();
         if let Some(parts) = id {
             for part in parts {
-                path = path.child(part.as_str());
+                path = path.join(part.as_str());
             }
         }
         path
@@ -316,9 +317,9 @@ impl BaseLanceNamespace {
         let mut path = self.base_path.clone();
         for (i, part) in id.iter().enumerate() {
             if i == id.len() - 1 {
-                path = path.child(format!("{}.lance", part).as_str());
+                path = path.join(format!("{}.lance", part).as_str());
             } else {
-                path = path.child(part.as_str());
+                path = path.join(part.as_str());
             }
         }
         Ok(path)
@@ -342,27 +343,23 @@ impl BaseLanceNamespace {
 
     /// Extract the namespace path (all but last element) from a table ID.
     fn namespace_path_from_table_id(id: &Option<Vec<String>>) -> Option<Vec<String>> {
-        id.as_ref().and_then(|parts| {
+        id.as_ref().map(|parts| {
             if parts.len() > 1 {
-                Some(parts[..parts.len() - 1].to_vec())
+                parts[..parts.len() - 1].to_vec()
             } else {
-                Some(vec![])
+                vec![]
             }
         })
     }
 
     /// Ensure a namespace directory exists.
-    async fn ensure_namespace_exists(
-        &self,
-        path: &Path,
-        id: &Option<Vec<String>>,
-    ) -> Result<()> {
+    async fn ensure_namespace_exists(&self, path: &Path, id: &Option<Vec<String>>) -> Result<()> {
         // Root namespace always exists
         if id.as_ref().is_none_or(|parts| parts.is_empty()) {
             return Ok(());
         }
         // Check by looking for the .lance-namespace marker file
-        let marker_path = path.child(".lance-namespace");
+        let marker_path = path.clone().join(".lance-namespace");
         match self.object_store.inner.head(&marker_path).await {
             Ok(_) => Ok(()),
             Err(_) => {
@@ -370,10 +367,7 @@ impl BaseLanceNamespace {
                     .as_ref()
                     .map(|parts| parts.join("/"))
                     .unwrap_or_else(|| "<root>".to_string());
-                Err(NamespaceError::NamespaceNotFound {
-                    message: name,
-                }
-                .into())
+                Err(NamespaceError::NamespaceNotFound { message: name }.into())
             }
         }
     }
@@ -408,16 +402,16 @@ impl BaseLanceNamespace {
         version: Option<i64>,
         operation: &str,
     ) -> Result<Dataset> {
-        if let Some(version) = version {
-            if version < 0 {
-                return Err(NamespaceError::InvalidInput {
-                    message: format!(
-                        "Table version for {} must be non-negative, got {}",
-                        operation, version
-                    ),
-                }
-                .into());
+        if let Some(version) = version
+            && version < 0
+        {
+            return Err(NamespaceError::InvalidInput {
+                message: format!(
+                    "Table version for {} must be non-negative, got {}",
+                    operation, version
+                ),
             }
+            .into());
         }
 
         let mut builder = DatasetBuilder::from_uri(table_uri);
@@ -455,7 +449,10 @@ impl BaseLanceNamespace {
 
     fn decode_ipc_stream(
         data: &Bytes,
-    ) -> Result<(Arc<arrow_schema::Schema>, Vec<arrow::record_batch::RecordBatch>)> {
+    ) -> Result<(
+        Arc<arrow_schema::Schema>,
+        Vec<arrow::record_batch::RecordBatch>,
+    )> {
         let cursor = Cursor::new(data.as_ref());
         let stream_reader = StreamReader::try_new(cursor, None).map_err(|e| {
             lance_core::Error::from(NamespaceError::InvalidInput {
@@ -688,14 +685,14 @@ impl BaseLanceNamespace {
         }
 
         let mut next_page_token = None;
-        if let Some(limit) = limit {
-            if limit >= 0 {
-                let limit = limit as usize;
-                if limit > 0 && names.len() > limit {
-                    next_page_token = Some(names[limit - 1].clone());
-                }
-                names.truncate(limit);
+        if let Some(limit) = limit
+            && limit >= 0
+        {
+            let limit = limit as usize;
+            if limit > 0 && names.len() > limit {
+                next_page_token = Some(names[limit - 1].clone());
             }
+            names.truncate(limit);
         }
 
         if names.is_empty() {
@@ -724,14 +721,14 @@ impl BaseLanceNamespace {
         }
 
         let mut next_page_token = None;
-        if let Some(limit) = limit {
-            if limit >= 0 {
-                let limit = limit as usize;
-                if limit > 0 && indices.len() > limit {
-                    next_page_token = Some(indices[limit - 1].index_name.clone());
-                }
-                indices.truncate(limit);
+        if let Some(limit) = limit
+            && limit >= 0
+        {
+            let limit = limit as usize;
+            if limit > 0 && indices.len() > limit {
+                next_page_token = Some(indices[limit - 1].index_name.clone());
             }
+            indices.truncate(limit);
         }
         if indices.is_empty() {
             None
@@ -849,10 +846,9 @@ impl BaseLanceNamespace {
                         ),
                     })
                 })?
+                && transaction.uuid == id
             {
-                if transaction.uuid == id {
-                    return Ok((version.version, transaction));
-                }
+                return Ok((version.version, transaction));
             }
         }
 
@@ -873,12 +869,13 @@ impl BaseLanceNamespace {
         for te in table_entries {
             let table_uri = self.resolve_table_uri(&te.table_id)?;
             let table_path = Self::uri_to_object_store_path(&table_uri);
-            let versions_dir_path = table_path.child("_versions");
+            let versions_dir_path = table_path.clone().join("_versions");
 
             for (start, end) in &te.ranges {
                 for version in *start..=*end {
-                    let version_path =
-                        versions_dir_path.child(format!("{}.manifest", version as u64));
+                    let version_path = versions_dir_path
+                        .clone()
+                        .join(format!("{}.manifest", version as u64));
                     match self.object_store.inner.delete(&version_path).await {
                         Ok(_) => {
                             deleted_count += 1;
@@ -888,7 +885,9 @@ impl BaseLanceNamespace {
                             if best_effort {
                                 log::warn!(
                                     "Failed to delete manifest file for version {} of table {:?}: {:?}",
-                                    version, te.table_id, e
+                                    version,
+                                    te.table_id,
+                                    e
                                 );
                             } else {
                                 return Err(NamespaceError::Internal {
@@ -913,24 +912,24 @@ impl BaseLanceNamespace {
         scanner: &mut lance::dataset::scanner::Scanner,
         query: &QueryTableRequest,
     ) -> Result<()> {
-        if let Some(ref filter) = query.filter {
-            if !filter.is_empty() {
-                scanner.filter(filter).map_err(|e| {
-                    lance_core::Error::from(NamespaceError::InvalidInput {
-                        message: format!("Invalid filter expression: {}", e),
-                    })
-                })?;
-            }
+        if let Some(ref filter) = query.filter
+            && !filter.is_empty()
+        {
+            scanner.filter(filter).map_err(|e| {
+                lance_core::Error::from(NamespaceError::InvalidInput {
+                    message: format!("Invalid filter expression: {}", e),
+                })
+            })?;
         }
-        if let Some(ref columns) = query.columns {
-            if let Some(ref col_names) = columns.column_names {
-                let col_refs: Vec<&str> = col_names.iter().map(|s| s.as_str()).collect();
-                scanner.project(&col_refs).map_err(|e| {
-                    lance_core::Error::from(NamespaceError::InvalidInput {
-                        message: format!("Invalid column projection: {}", e),
-                    })
-                })?;
-            }
+        if let Some(ref columns) = query.columns
+            && let Some(ref col_names) = columns.column_names
+        {
+            let col_refs: Vec<&str> = col_names.iter().map(|s| s.as_str()).collect();
+            scanner.project(&col_refs).map_err(|e| {
+                lance_core::Error::from(NamespaceError::InvalidInput {
+                    message: format!("Invalid column projection: {}", e),
+                })
+            })?;
         }
         if query.k > 0 {
             let _ = scanner.limit(Some(query.k as i64), query.offset.map(|o| o as i64));
@@ -957,8 +956,7 @@ impl BaseLanceNamespace {
 
         for entry in entries {
             let path = entry.trim_end_matches('/');
-            if path.ends_with(".lance") {
-                let table_name = &path[..path.len() - 6];
+            if let Some(table_name) = path.strip_suffix(".lance") {
                 tables.push(table_name.to_string());
             }
         }
@@ -972,12 +970,7 @@ impl BaseLanceNamespace {
     /// those marked with `.lance-namespace`.  Stray directories that are not
     /// namespaces will be traversed but will not produce false table entries
     /// because only entries ending with `.lance` are collected.
-    async fn collect_tables_recursive(
-        &self,
-        dir: &Path,
-        prefix: &str,
-        tables: &mut Vec<String>,
-    ) {
+    async fn collect_tables_recursive(&self, dir: &Path, prefix: &str, tables: &mut Vec<String>) {
         let entries = match self.object_store.read_dir(dir.clone()).await {
             Ok(entries) => entries,
             Err(_) => return,
@@ -985,9 +978,8 @@ impl BaseLanceNamespace {
 
         for entry in entries {
             let name = entry.trim_end_matches('/');
-            let child_path = dir.child(name);
-            if name.ends_with(".lance") {
-                let table_name = &name[..name.len() - 6];
+            let child_path = dir.clone().join(name);
+            if let Some(table_name) = name.strip_suffix(".lance") {
                 let full_name = if prefix.is_empty() {
                     table_name.to_string()
                 } else {
@@ -1004,7 +996,6 @@ impl BaseLanceNamespace {
             }
         }
     }
-
 }
 
 // ── LanceNamespace trait implementation ──────────────────────────────────────
@@ -1033,7 +1024,7 @@ impl LanceNamespace for BaseLanceNamespace {
                 continue;
             }
             // Check if this subdirectory has a .lance-namespace marker
-            let child_marker = ns_path.child(name.as_str()).child(".lance-namespace");
+            let child_marker = ns_path.clone().join(name.as_str()).join(".lance-namespace");
             if self.object_store.inner.head(&child_marker).await.is_ok() {
                 namespaces.push(name);
             }
@@ -1072,7 +1063,7 @@ impl LanceNamespace for BaseLanceNamespace {
         let ns_uri = self.resolve_namespace_uri(id);
 
         // Check if already exists by looking for marker file
-        let marker_path = ns_path.child(".lance-namespace");
+        let marker_path = ns_path.clone().join(".lance-namespace");
         if self.object_store.inner.head(&marker_path).await.is_ok() {
             return Err(NamespaceError::NamespaceAlreadyExists {
                 message: id.as_ref().unwrap().join("/"),
@@ -1083,7 +1074,7 @@ impl LanceNamespace for BaseLanceNamespace {
         // Create directory by writing a placeholder file and then deleting it,
         // since object stores don't have explicit directory creation.
         // For local filesystem, we can just create the directory marker.
-        let marker_path = ns_path.child(".lance-namespace");
+        let marker_path = ns_path.clone().join(".lance-namespace");
         self.object_store
             .inner
             .put(&marker_path, bytes::Bytes::new().into())
@@ -1164,16 +1155,10 @@ impl LanceNamespace for BaseLanceNamespace {
         let mut tables = self.list_directory_tables(&ns_path).await?;
         let page_token = Self::apply_pagination(&mut tables, request.page_token, request.limit);
 
-        Ok(ListTablesResponse {
-            tables,
-            page_token,
-        })
+        Ok(ListTablesResponse { tables, page_token })
     }
 
-    async fn describe_table(
-        &self,
-        request: DescribeTableRequest,
-    ) -> Result<DescribeTableResponse> {
+    async fn describe_table(&self, request: DescribeTableRequest) -> Result<DescribeTableResponse> {
         self.ensure_table_exists(&request.id).await?;
 
         let table_name = Self::table_name_from_id(&request.id)?;
@@ -1210,8 +1195,7 @@ impl LanceNamespace for BaseLanceNamespace {
                 let arrow_schema: arrow_schema::Schema = lance_schema.into();
                 let json_schema = arrow_schema_to_json(&arrow_schema)?;
 
-                let metadata: HashMap<String, String> =
-                    version_info.metadata.into_iter().collect();
+                let metadata: HashMap<String, String> = version_info.metadata.into_iter().collect();
 
                 Ok(DescribeTableResponse {
                     table: Some(table_name),
@@ -1316,7 +1300,7 @@ impl LanceNamespace for BaseLanceNamespace {
 
         // Create a marker file to declare the table
         let table_path = self.resolve_table_path(&request.id)?;
-        let reserved_path = table_path.child(".lance-reserved");
+        let reserved_path = table_path.clone().join(".lance-reserved");
         self.object_store
             .inner
             .put(&reserved_path, bytes::Bytes::new().into())
@@ -1463,10 +1447,7 @@ impl LanceNamespace for BaseLanceNamespace {
             .await
             .map_err(|e| {
                 lance_core::Error::from(NamespaceError::Internal {
-                    message: format!(
-                        "Failed to remove old table directory during rename: {}",
-                        e
-                    ),
+                    message: format!("Failed to remove old table directory during rename: {}", e),
                 })
             })?;
 
@@ -1601,9 +1582,7 @@ impl LanceNamespace for BaseLanceNamespace {
 
         if request.when_matched_update_all == Some(true) {
             if let Some(ref filt) = request.when_matched_update_all_filt {
-                builder.when_matched(
-                    lance::dataset::WhenMatched::UpdateIf(filt.clone()),
-                );
+                builder.when_matched(lance::dataset::WhenMatched::UpdateIf(filt.clone()));
             } else {
                 builder.when_matched(lance::dataset::WhenMatched::UpdateAll);
             }
@@ -1614,9 +1593,7 @@ impl LanceNamespace for BaseLanceNamespace {
         }
 
         if request.when_not_matched_by_source_delete == Some(true) {
-            builder.when_not_matched_by_source(
-                lance::dataset::WhenNotMatchedBySource::Delete,
-            );
+            builder.when_not_matched_by_source(lance::dataset::WhenNotMatchedBySource::Delete);
         }
 
         let (arrow_schema, batches) = Self::decode_ipc_stream(&request_data)?;
@@ -1642,21 +1619,19 @@ impl LanceNamespace for BaseLanceNamespace {
 
     async fn update_table(&self, request: UpdateTableRequest) -> Result<UpdateTableResponse> {
         let table_uri = self.resolve_table_uri(&request.id)?;
-        let dataset = self
-            .load_dataset(&table_uri, None, "update_table")
-            .await?;
+        let dataset = self.load_dataset(&table_uri, None, "update_table").await?;
 
         let dataset_arc = Arc::new(dataset);
         let mut op = lance::dataset::UpdateBuilder::new(dataset_arc);
 
-        if let Some(ref predicate) = request.predicate {
-            if !predicate.is_empty() {
-                op = op.update_where(predicate).map_err(|e| {
-                    lance_core::Error::from(NamespaceError::InvalidInput {
-                        message: format!("Invalid update predicate: {}", e),
-                    })
-                })?;
-            }
+        if let Some(ref predicate) = request.predicate
+            && !predicate.is_empty()
+        {
+            op = op.update_where(predicate).map_err(|e| {
+                lance_core::Error::from(NamespaceError::InvalidInput {
+                    message: format!("Invalid update predicate: {}", e),
+                })
+            })?;
         }
 
         for update_pair in &request.updates {
@@ -1749,8 +1724,8 @@ impl LanceNamespace for BaseLanceNamespace {
 
         let mut buffer = Vec::new();
         {
-            let mut writer =
-                arrow_ipc::writer::StreamWriter::try_new(&mut buffer, &schema).map_err(|e| {
+            let mut writer = arrow_ipc::writer::StreamWriter::try_new(&mut buffer, &schema)
+                .map_err(|e| {
                     lance_core::Error::from(NamespaceError::Internal {
                         message: format!("Failed to create IPC writer: {}", e),
                     })
@@ -1867,7 +1842,10 @@ impl LanceNamespace for BaseLanceNamespace {
                             .schema()
                             .field_path(i32::try_from(*field_id).map_err(|e| {
                                 lance_core::Error::from(NamespaceError::Internal {
-                                    message: format!("Field id {} does not fit in i32: {}", field_id, e),
+                                    message: format!(
+                                        "Field id {} does not fit in i32: {}",
+                                        field_id, e
+                                    ),
                                 })
                             })?)
                             .map_err(|e| {
@@ -1886,6 +1864,7 @@ impl LanceNamespace for BaseLanceNamespace {
                     index_uuid: description.metadata()[0].uuid.to_string(),
                     columns,
                     status: "SUCCEEDED".to_string(),
+                    ..Default::default()
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -1911,11 +1890,14 @@ impl LanceNamespace for BaseLanceNamespace {
             })
         })?;
 
-        let metadatas = dataset.load_indices_by_name(index_name).await.map_err(|e| {
-            lance_core::Error::from(NamespaceError::Internal {
-                message: format!("Failed to load index '{}' metadata: {}", index_name, e),
-            })
-        })?;
+        let metadatas = dataset
+            .load_indices_by_name(index_name)
+            .await
+            .map_err(|e| {
+                lance_core::Error::from(NamespaceError::Internal {
+                    message: format!("Failed to load index '{}' metadata: {}", index_name, e),
+                })
+            })?;
         if metadatas.first().is_some_and(is_system_index) {
             return Err(NamespaceError::Unsupported {
                 message: format!("System index '{}' is not exposed by this API", index_name),
@@ -1923,14 +1905,13 @@ impl LanceNamespace for BaseLanceNamespace {
             .into());
         }
 
-        let stats =
-            <Dataset as DatasetIndexExt>::index_statistics(&dataset, index_name)
-                .await
-                .map_err(|e| {
-                    lance_core::Error::from(NamespaceError::Internal {
-                        message: format!("Failed to describe index statistics: {}", e),
-                    })
-                })?;
+        let stats = <Dataset as DatasetIndexExt>::index_statistics(&dataset, index_name)
+            .await
+            .map_err(|e| {
+                lance_core::Error::from(NamespaceError::Internal {
+                    message: format!("Failed to describe index statistics: {}", e),
+                })
+            })?;
         let stats: serde_json::Value = serde_json::from_str(&stats).map_err(|e| {
             lance_core::Error::from(NamespaceError::Internal {
                 message: format!("Failed to parse index statistics: {}", e),
@@ -1954,14 +1935,23 @@ impl LanceNamespace for BaseLanceNamespace {
             .load_dataset(&table_uri, None, "drop_table_index")
             .await?;
 
-        let metadatas = dataset.load_indices_by_name(index_name).await.map_err(|e| {
-            lance_core::Error::from(NamespaceError::Internal {
-                message: format!("Failed to load index '{}' before dropping: {}", index_name, e),
-            })
-        })?;
+        let metadatas = dataset
+            .load_indices_by_name(index_name)
+            .await
+            .map_err(|e| {
+                lance_core::Error::from(NamespaceError::Internal {
+                    message: format!(
+                        "Failed to load index '{}' before dropping: {}",
+                        index_name, e
+                    ),
+                })
+            })?;
         if metadatas.first().is_some_and(is_system_index) {
             return Err(NamespaceError::Unsupported {
-                message: format!("System index '{}' cannot be dropped via this API", index_name),
+                message: format!(
+                    "System index '{}' cannot be dropped via this API",
+                    index_name
+                ),
             }
             .into());
         }
@@ -1993,7 +1983,7 @@ impl LanceNamespace for BaseLanceNamespace {
     ) -> Result<ListTableVersionsResponse> {
         let table_uri = self.resolve_table_uri(&request.id)?;
         let table_path = Self::uri_to_object_store_path(&table_uri);
-        let versions_dir = table_path.child("_versions");
+        let versions_dir = table_path.clone().join("_versions");
 
         let manifest_metas: Vec<_> = self
             .object_store
@@ -2156,8 +2146,7 @@ impl LanceNamespace for BaseLanceNamespace {
             )
             .await
             .map_err(|e| match e {
-                ObjectStoreError::AlreadyExists { .. }
-                | ObjectStoreError::Precondition { .. } => {
+                ObjectStoreError::AlreadyExists { .. } | ObjectStoreError::Precondition { .. } => {
                     lance_core::Error::from(NamespaceError::ConcurrentModification {
                         message: format!("Version {} already exists", version),
                     })
@@ -2243,7 +2232,7 @@ impl LanceNamespace for BaseLanceNamespace {
             .map(|t| {
                 (
                     t.name.clone(),
-                    t.expression.clone().unwrap_or_default(),
+                    t.expression.clone().flatten().unwrap_or_default(),
                 )
             })
             .collect();
@@ -2288,10 +2277,10 @@ impl LanceNamespace for BaseLanceNamespace {
             .iter()
             .map(|entry| {
                 let mut alt = lance::dataset::ColumnAlteration::new(entry.path.clone());
-                if let Some(ref rename) = entry.rename {
+                if let Some(Some(rename)) = &entry.rename {
                     alt = alt.rename(rename.to_string());
                 }
-                if let Some(nullable) = entry.nullable {
+                if let Some(Some(nullable)) = entry.nullable {
                     alt = alt.set_nullable(nullable);
                 }
                 alt
@@ -2350,21 +2339,14 @@ impl LanceNamespace for BaseLanceNamespace {
         let entries: Vec<(&str, &str)> = request
             .metadata
             .as_ref()
-            .map(|m| {
-                m.iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                    .collect()
-            })
+            .map(|m| m.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect())
             .unwrap_or_default();
 
-        let updated = dataset
-            .update_schema_metadata(entries)
-            .await
-            .map_err(|e| {
-                lance_core::Error::from(NamespaceError::Internal {
-                    message: format!("Failed to update schema metadata: {}", e),
-                })
-            })?;
+        let updated = dataset.update_schema_metadata(entries).await.map_err(|e| {
+            lance_core::Error::from(NamespaceError::Internal {
+                message: format!("Failed to update schema metadata: {}", e),
+            })
+        })?;
 
         let transaction_id = dataset
             .read_transaction()
@@ -2522,24 +2504,24 @@ impl LanceNamespace for BaseLanceNamespace {
             .await?;
 
         let mut scanner = dataset.scan();
-        if let Some(ref filter) = request.filter {
-            if !filter.is_empty() {
-                scanner.filter(filter).map_err(|e| {
-                    lance_core::Error::from(NamespaceError::InvalidInput {
-                        message: format!("Invalid filter expression: {}", e),
-                    })
-                })?;
-            }
+        if let Some(ref filter) = request.filter
+            && !filter.is_empty()
+        {
+            scanner.filter(filter).map_err(|e| {
+                lance_core::Error::from(NamespaceError::InvalidInput {
+                    message: format!("Invalid filter expression: {}", e),
+                })
+            })?;
         }
-        if let Some(ref columns) = request.columns {
-            if let Some(ref col_names) = columns.column_names {
-                let col_refs: Vec<&str> = col_names.iter().map(|s| s.as_str()).collect();
-                scanner.project(&col_refs).map_err(|e| {
-                    lance_core::Error::from(NamespaceError::InvalidInput {
-                        message: format!("Invalid column projection: {}", e),
-                    })
-                })?;
-            }
+        if let Some(ref columns) = request.columns
+            && let Some(ref col_names) = columns.column_names
+        {
+            let col_refs: Vec<&str> = col_names.iter().map(|s| s.as_str()).collect();
+            scanner.project(&col_refs).map_err(|e| {
+                lance_core::Error::from(NamespaceError::InvalidInput {
+                    message: format!("Invalid column projection: {}", e),
+                })
+            })?;
         }
         if request.k > 0 {
             let _ = scanner.limit(Some(request.k as i64), request.offset.map(|o| o as i64));
@@ -2701,6 +2683,7 @@ impl LanceNamespace for BaseLanceNamespace {
 
         Ok(GetTableTagVersionResponse {
             version: version as i64,
+            ..Default::default()
         })
     }
 
@@ -2876,21 +2859,23 @@ mod tests {
         let (ns, _dir) = create_test_namespace().await;
         create_namespace(&ns, &["workspace"]).await;
 
-        assert!(ns
-            .namespace_exists(NamespaceExistsRequest {
+        assert!(
+            ns.namespace_exists(NamespaceExistsRequest {
                 id: table_id(&["workspace"]),
                 ..Default::default()
             })
             .await
-            .is_ok());
+            .is_ok()
+        );
 
-        assert!(ns
-            .namespace_exists(NamespaceExistsRequest {
+        assert!(
+            ns.namespace_exists(NamespaceExistsRequest {
                 id: table_id(&["nonexistent"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -2905,13 +2890,14 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(ns
-            .namespace_exists(NamespaceExistsRequest {
+        assert!(
+            ns.namespace_exists(NamespaceExistsRequest {
                 id: table_id(&["workspace"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -3035,21 +3021,23 @@ mod tests {
         create_namespace(&ns, &["workspace"]).await;
         create_test_table(&ns, &["workspace", "test_table"]).await;
 
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "test_table"]),
                 ..Default::default()
             })
             .await
-            .is_ok());
+            .is_ok()
+        );
 
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "nonexistent"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -3065,13 +3053,14 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "test_table"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -3418,10 +3407,8 @@ mod tests {
 
         let tid = table_id(&["workspace", "test_table"]);
 
-        let mut transform = lance_namespace::models::NewColumnTransform::new(
-            "score".to_string(),
-        );
-        transform.expression = Some("0".to_string());
+        let mut transform = lance_namespace::models::AddColumnsEntry::new("score".to_string());
+        transform.expression = Some(Some("0".to_string()));
 
         ns.alter_table_add_columns(AlterTableAddColumnsRequest {
             id: tid.clone(),
@@ -3480,11 +3467,8 @@ mod tests {
 
         let tid = table_id(&["workspace", "test_table"]);
 
-        let mut entry = lance_namespace::models::AlterColumnsEntry::new(
-            "name".to_string(),
-            serde_json::Value::Null,
-        );
-        entry.rename = Some("full_name".to_string());
+        let mut entry = lance_namespace::models::AlterColumnsEntry::new("name".to_string());
+        entry.rename = Some(Some("full_name".to_string()));
 
         ns.alter_table_alter_columns(AlterTableAlterColumnsRequest {
             id: tid.clone(),
@@ -3635,22 +3619,24 @@ mod tests {
         .unwrap();
 
         // Old name should not exist
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "test_table"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
 
         // New name should exist
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "renamed_table"]),
                 ..Default::default()
             })
             .await
-            .is_ok());
+            .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -3684,13 +3670,14 @@ mod tests {
         .unwrap();
 
         // Table should be gone
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: table_id(&["workspace", "test_table"]),
                 ..Default::default()
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     // ── Additional coverage ────────────────────────────────────────────
@@ -3751,13 +3738,14 @@ mod tests {
         assert!(resp.location.is_some());
 
         // Table directory should exist (has .lance-reserved marker)
-        assert!(ns
-            .table_exists(TableExistsRequest {
+        assert!(
+            ns.table_exists(TableExistsRequest {
                 id: tid.clone(),
                 ..Default::default()
             })
             .await
-            .is_ok());
+            .is_ok()
+        );
 
         // Declaring the same table again should fail
         let result = ns
@@ -3900,10 +3888,12 @@ mod tests {
             )
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("required for create_table"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("required for create_table")
+        );
     }
 
     #[tokio::test]
@@ -3922,10 +3912,12 @@ mod tests {
             )
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("required for insert_into_table"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("required for insert_into_table")
+        );
     }
 
     #[tokio::test]
@@ -3942,10 +3934,12 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("predicate is required"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("predicate is required")
+        );
     }
 
     #[tokio::test]
@@ -4712,10 +4706,12 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("scalar index types"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("scalar index types")
+        );
     }
 
     // ── Drop index missing name ────────────────────────────────────────
@@ -4910,7 +4906,12 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(indices.indexes.iter().any(|i| i.columns.contains(&"name".to_string())));
+        assert!(
+            indices
+                .indexes
+                .iter()
+                .any(|i| i.columns.contains(&"name".to_string()))
+        );
     }
 
     // ── Describe table with specific version ──────────────────────────
